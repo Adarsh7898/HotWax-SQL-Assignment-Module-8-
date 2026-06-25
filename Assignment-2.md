@@ -22,25 +22,29 @@ Customer Service might need to verify addresses for orders placed or completed i
 - `COUNTRY_CODE`  
 - `ORDER_STATUS`  
 - `ORDER_DATE`
-##QUERY
+
 ```sql
 SELECT 
-    oh.order_id, 
-    orole.party_id, 
-    CONCAT(per.first_name, ' ', per.last_name) AS customer_name, 
-    pa.address1 AS street_address, 
-    pa.city, 
-    pa.state_province_geo_id AS state_province, 
-    pa.postal_code, 
-    pa.country_geo_id AS country_code, 
-    oh.status_id AS order_status, 
-    oh.order_date
+oh.ORDER_ID,
+role.PARTY_ID,
+CONCAT(p.first_name,p.last_name) AS CUSTOMER_NAME,
+COALESCE(pa.address1,pa.address2) AS STREET_ADDRESS,
+pa.CITY,
+pa.state_province_geo_id AS STATE_PROVINCE,
+pa.POSTAL_CODE,
+pa.country_geo_id AS COUNTRY_CODE,
+oh.status_id AS ORDER_STATUS,
+oh.ORDER_DATE
+
 FROM order_header oh
-JOIN order_role orole ON oh.order_id = orole.order_id AND orole.role_type_id = 'PLACING_CUSTOMER'
-LEFT JOIN person per ON orole.party_id = per.party_id
-JOIN order_contact_mech ocm ON oh.order_id = ocm.order_id AND ocm.contact_mech_purpose_type_id = 'SHIPPING_LOCATION'
-JOIN postal_address pa ON ocm.contact_mech_id = pa.contact_mech_id
-WHERE oh.order_date >= '2023-10-01' AND oh.order_date < '2023-11-01';
+JOIN order_role role USING(order_id)
+JOIN person p USING(party_id)
+JOIN order_contact_mech ocm USING(order_id)
+JOIN contact_mech cm USING(contact_mech_id)
+JOIN postal_address pa USING(contact_mech_id)
+WHERE oh.order_date >= '2023-10-01' AND oh.order_date < '2023-11-01'
+
+
 
 ```
 
@@ -60,24 +64,26 @@ Companies often want region-specific analysis to plan local marketing, staffing,
 - `TOTAL_AMOUNT`
 - `ORDER_DATE`  
 - `ORDER_STATUS`
-##QUERY
+
+
 ```sql
-SELECT 
-    oh.order_id, 
-    CONCAT(per.first_name, ' ', per.last_name) AS customer_name, 
-    pa.address1 AS street_address, 
-    pa.city, 
-    pa.state_province_geo_id AS state_province, 
-    pa.postal_code, 
-    oh.grand_total AS total_amount, 
-    oh.order_date, 
-    oh.status_id AS order_status
+SELECT
+oh.ORDER_ID,
+CONCAT(p.first_name,' ',p.last_name) AS CUSTOMER_NAME,
+COALESCE(address1,address2) AS STREET_ADDRESS ,
+pa.CITY,
+pa.STATE_PROVINCE_GEO_ID,
+pa.POSTAL_CODE,
+oh.grand_total AS TOTAL_AMOUNT,
+oh.ORDER_DATE,
+oh.status_id AS ORDER_STATUS
+
 FROM order_header oh
-JOIN order_role orole ON oh.order_id = orole.order_id AND orole.role_type_id = 'PLACING_CUSTOMER'
-LEFT JOIN person per ON orole.party_id = per.party_id
-JOIN order_contact_mech ocm ON oh.order_id = ocm.order_id AND ocm.contact_mech_purpose_type_id = 'SHIPPING_LOCATION'
-JOIN postal_address pa ON ocm.contact_mech_id = pa.contact_mech_id
-WHERE pa.state_province_geo_id IN ('NY', 'USA_NY') OR pa.city = 'New York';
+LEFT JOIN order_role role USING(order_id)
+JOIN person p USING(party_id)
+JOIN order_contact_mech ocm USING(order_id)
+JOIN postal_address pa USING(contact_mech_id)
+WHERE pa.city = 'NEW YORK'
 ```
 
 ---
@@ -93,23 +99,25 @@ Merchandising teams need to identify the best-selling product(s) in a specific r
 - `TOTAL_QUANTITY_SOLD`  
 - `CITY` / `STATE` (within New York region) 
 - `REVENUE` (optionally, total sales amount)
-  ##QUERY
+
 ```sql
 SELECT 
-    oi.product_id, 
-    p.internal_name, 
-    SUM(oi.quantity) AS total_quantity_sold, 
-    pa.city, 
-    pa.state_province_geo_id AS state, 
-    SUM(oi.quantity * oi.unit_price) AS revenue
-FROM order_header oh
-JOIN order_item oi ON oh.order_id = oi.order_id
-JOIN product p ON oi.product_id = p.product_id
-JOIN order_contact_mech ocm ON oh.order_id = ocm.order_id AND ocm.contact_mech_purpose_type_id = 'SHIPPING_LOCATION'
-JOIN postal_address pa ON ocm.contact_mech_id = pa.contact_mech_id
+oi.PRODUCT_ID,
+p.INTERNAL_NAME,
+SUM(oi.quantity) AS TOTAL_QUANTITY_SOLD,
+pa.CITY,
+pa.STATE_PROVINCE_GEO_ID,
+SUM(oi.unit_price * oi.quantity) AS REVENUE
+
+FROM order_item oi
+JOIN product p USING(product_id)
+JOIN order_contact_mech ocm USING(order_id)
+JOIN contact_mech cm USING(contact_mech_id)
+JOIN postal_address pa USING(contact_mech_id)
 WHERE pa.state_province_geo_id IN ('NY', 'USA_NY') OR pa.city = 'New York'
+AND ocm.contact_mech_purpose_type_id='SHIPPING_LOCATION'
 GROUP BY oi.product_id, p.internal_name, pa.city, pa.state_province_geo_id
-ORDER BY total_quantity_sold DESC
+ORDER BY TOTAL_QUANTITY_SOLD DESC
 LIMIT 1;
 
 ```
@@ -125,22 +133,23 @@ Different physical or online stores (facilities) may have varying levels of perf
 - `TOTAL_ORDERS` 
 - `TOTAL_REVENUE`  
 - `DATE_RANGE`
-  ##QUERY
+
   
 ```sql
-SELECT 
-    f.facility_id, 
-    f.facility_name, 
-    COUNT(DISTINCT oh.order_id) AS total_orders, 
-    SUM(oi.quantity * oi.unit_price) AS total_revenue, 
-    MIN(oh.order_date) AS date_range_start,
-    MAX(oh.order_date) AS date_range_end
+SELECT
+f.FACILITY_ID,
+f.FACILITY_NAME,
+SUM(DISTINCT oh.order_id) AS TOTAL_ORDERS,
+CONCAT(SUM(oi.unit_price * oi.quantity),'$' )AS TOTAL_REVENUE,
+CONCAT(MIN(oh.order_date),' TO ', MAX(order_date)) AS DATE_RANGE
+
 FROM order_header oh
-JOIN order_item_ship_group oisg ON oh.order_id = oisg.order_id
-JOIN facility f ON oisg.facility_id = f.facility_id
-JOIN order_item oi ON oh.order_id = oi.order_id AND oisg.ship_group_seq_id = oi.ship_group_seq_id
+JOIN order_item oi USING(order_id) 
+JOIN order_item_ship_group oisg USING(order_id)
+JOIN facility f USING(facility_id)
 WHERE oh.status_id = 'ORDER_COMPLETED'
-GROUP BY f.facility_id, f.facility_name;
+GROUP BY f.facility_id, f.facility_name 
+
 
 ```
 
@@ -158,21 +167,20 @@ Warehouse managers need to track “shrinkage” such as lost or damaged invento
 - `QUANTITY_LOST_OR_DAMAGED` 
 - `REASON_CODE` (Lost, Damaged, Expired, etc.)  
 - `TRANSACTION_DATE`
-  ##QUERY
+
 ```sql
 SELECT 
-    iiv.inventory_item_id, 
-    ii.product_id, 
-    ii.facility_id, 
-    ABS(iiv.quantity_on_hand_var) AS quantity_lost_or_damaged, 
-    vr.description AS reason_code, 
-    iiv.variance_date AS transaction_date
+iiv.inventory_item_id, 
+ii.product_id, 
+ii.facility_id, 
+iiv.quantity_on_hand_var AS quantity_lost_or_damaged, 
+vr.description AS reason_code, 
+iiv.created_stamp AS transaction_date
 FROM inventory_item_variance iiv
 JOIN inventory_item ii ON iiv.inventory_item_id = ii.inventory_item_id
 JOIN variance_reason vr ON iiv.variance_reason_id = vr.variance_reason_id
 WHERE iiv.variance_reason_id IN ('VAR_LOST', 'VAR_DAMAGED', 'VAR_STOLEN')
-   OR vr.description LIKE '%Lost%' 
-   OR vr.description LIKE '%Damaged%';
+
 
 ```
 
@@ -189,21 +197,22 @@ Avoiding out-of-stock situations is critical. This report flags items that have 
 - `ATP` (Available to Promise)  
 - `REORDER_THRESHOLD` 
 - `DATE_CHECKED`
-- ##QUERY
+
 ```sql
 SELECT 
-    ii.product_id, 
-    p.internal_name AS product_name, 
-    ii.facility_id, 
-    SUM(ii.quantity_on_hand_total) AS qoh, 
-    SUM(ii.available_to_promise_total) AS atp, 
-    pf.minimum_stock AS reorder_threshold, 
-    CURRENT_DATE AS date_checked
+p.PRODUCT_ID,
+p.PRODUCT_NAME,
+pf.FACILITY_ID,
+SUM(ii.quantity_on_hand_total) AS QOH,
+SUM(ii.available_to_promise_total) AS ATP,
+pf.minimum_stock AS REORDER_THRESHOLD,
+CURRENT_DATE AS DATE_CHECKED
+
 FROM inventory_item ii
-JOIN product p ON ii.product_id = p.product_id
-LEFT JOIN product_facility pf ON ii.product_id = pf.product_id AND ii.facility_id = pf.facility_id
-GROUP BY ii.product_id, p.internal_name, ii.facility_id, pf.minimum_stock
-HAVING SUM(ii.available_to_promise_total) <= COALESCE(pf.minimum_stock, 0);
+JOIN product_facility pf USING(facility_id)
+JOIN product p ON p.product_id = ii.product_id
+GROUP BY ii.product_id,ii.facility_id
+HAVING SUM(available_to_promise_total) <=0
 
 ```
 
@@ -218,18 +227,19 @@ The business wants to know where open orders are currently assigned, whether in 
 - `FACILITY_ID`  
 - `FACILITY_NAME`  
 - `FACILITY_TYPE_ID`
-- ##QUERY
+
 ```sql
-SELECT 
-    oh.order_id, 
-    oh.status_id AS order_status, 
-    f.facility_id, 
-    f.facility_name, 
-    f.facility_type_id
+SELECT
+oh.ORDER_ID,
+oh.status_id AS ORDER_STATUS,
+oisg.FACILITY_ID,
+f.FACILITY_NAME,
+f.FACILITY_TYPE_ID
+
 FROM order_header oh
-JOIN order_item_ship_group oisg ON oh.order_id = oisg.order_id
-JOIN facility f ON oisg.facility_id = f.facility_id
-WHERE oh.status_id IN ('ORDER_CREATED', 'ORDER_APPROVED');
+JOIN order_item_ship_group oisg USING(order_id)
+JOIN facility f USING(facility_id)
+WHERE oh.status_id IN('ORDER_APPROVED','ORDER_CREATED')
 
 ```
 
@@ -244,17 +254,18 @@ Sometimes the **Quantity on Hand (QOH)** doesn’t match the **Available to Prom
 - `QOH` (Quantity on Hand)  
 - `ATP` (Available to Promise)  
 - `DIFFERENCE` (QOH - ATP)
-- ##QUERY
+
 ```sql
 SELECT 
-    ii.product_id, 
-    ii.facility_id, 
-    SUM(ii.quantity_on_hand_total) AS qoh, 
-    SUM(ii.available_to_promise_total) AS atp, 
-    SUM(ii.quantity_on_hand_total) - SUM(ii.available_to_promise_total) AS difference
-FROM inventory_item ii
-GROUP BY ii.product_id, ii.facility_id
-HAVING SUM(ii.quantity_on_hand_total) <> SUM(ii.available_to_promise_total);
+PRODUCT_ID,
+FACILITY_ID,
+SUM(quantity_on_hand_total) AS QOH,
+SUM(available_to_promise_total) AS ATP,
+SUM(quantity_on_hand_total) - SUM(available_to_promise_total) AS DIFFERENCE
+
+FROM inventory_item 
+GROUP BY product_id, facility_id
+HAVING SUM(quantity_on_hand_total) <> SUM(available_to_promise_total)
 
 ```
 
@@ -269,7 +280,7 @@ Operations teams need to audit when an order item’s status (e.g., from “Pend
 - `CURRENT_STATUS_ID` 
 - `STATUS_CHANGE_DATETIME`
 - `CHANGED_BY`
-- ##QUERY
+
 ```sql
 SELECT 
     oi.order_id, 
@@ -298,15 +309,15 @@ Marketing and sales teams want to see how many orders come from each channel (e.
 - `TOTAL_ORDERS`
 - `TOTAL_REVENUE`
 - `REPORTING_PERIOD`
-  ##QUERY
+
 ```sql
 SELECT 
-    oh.sales_channel_enum_id AS sales_channel, 
-    COUNT(DISTINCT oh.order_id) AS total_orders, 
-    SUM(oh.grand_total) AS total_revenue, 
-    'CURRENT_YEAR' AS reporting_period 
-FROM order_header oh
-WHERE oh.order_date >= '2024-01-01'
-GROUP BY oh.sales_channel_enum_id;
+sales_channel_enum_id AS SALES_CHANNEL,
+COUNT(DISTINCT order_id) AS TOTAL_ORDERS,
+SUM(grand_total) AS TOTAL_REVENUE,
+entry_date AS REPORTING_PERIOD
+
+FROM order_header
+GROUP BY sales_channel_enum_id
 
 ```
